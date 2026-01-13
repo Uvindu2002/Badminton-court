@@ -1,217 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React from 'react';
+import { Link } from 'react-router-dom';
 import Footer from '../components/Footer';
-import { bookingAPI } from '../services/api';
 
 export default function Home() {
-    const navigate = useNavigate();
-    const [showCalendar, setShowCalendar] = useState(false);
-    const [currentMonth, setCurrentMonth] = useState(new Date());
-    const [bookings, setBookings] = useState([]);
-    const [hoveredDate, setHoveredDate] = useState(null);
-    const [hoveredSlots, setHoveredSlots] = useState([]);
-    const [loading, setLoading] = useState(false);
-
-    const timeSlots = [
-        '06:00', '07:00', '08:00', '09:00', '10:00', '11:00',
-        '12:00', '13:00', '14:00', '15:00', '16:00', '17:00',
-        '18:00', '19:00', '20:00', '21:00', '22:00'
-    ];
-
-    useEffect(() => {
-        if (showCalendar) {
-            fetchBookings();
-
-            // Auto-refresh every 5 minutes when calendar is open
-            const interval = setInterval(() => {
-                fetchBookings();
-            }, 300000); // 5 minutes
-
-            // Cleanup interval when calendar closes or month changes
-            return () => clearInterval(interval);
-        }
-    }, [showCalendar, currentMonth]);
-
-    const fetchBookings = async () => {
-        setLoading(true);
-        try {
-            const startDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
-            const endDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0);
-
-            console.log('Fetching bookings for month:', currentMonth.toLocaleDateString());
-
-            // Fetch all dates in the month
-            const allBookings = [];
-            const currentDate = new Date(startDate);
-
-            while (currentDate <= endDate) {
-                const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
-                try {
-                    const response = await bookingAPI.getByDate(dateStr);
-                    console.log(`Response for ${dateStr}:`, response);
-                    console.log(`Data structure:`, response.data);
-
-                    if (response.data && response.data.data && Array.isArray(response.data.data)) {
-                        // Log the structure of the first item
-                        if (response.data.data.length > 0) {
-                            console.log(`Sample slot from ${dateStr}:`, response.data.data[0]);
-                        }
-                        allBookings.push(...response.data.data);
-                    }
-                } catch (error) {
-                    console.error(`Error fetching bookings for ${dateStr}:`, error);
-                }
-                currentDate.setDate(currentDate.getDate() + 1);
-            }
-
-            console.log('Total bookings fetched:', allBookings.length);
-            console.log('All bookings array:', allBookings);
-            setBookings(allBookings);
-        } catch (error) {
-            console.error('Error fetching bookings:', error);
-            setBookings([]);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const getDaysInMonth = () => {
-        const year = currentMonth.getFullYear();
-        const month = currentMonth.getMonth();
-        const firstDay = new Date(year, month, 1);
-        const lastDay = new Date(year, month + 1, 0);
-        const daysInMonth = lastDay.getDate();
-        const startingDayOfWeek = firstDay.getDay();
-
-        const days = [];
-        for (let i = 0; i < startingDayOfWeek; i++) {
-            days.push(null);
-        }
-        for (let i = 1; i <= daysInMonth; i++) {
-            days.push(i);
-        }
-        return days;
-    };
-
-    const isDatePast = (day) => {
-        if (!day) return false;
-        const dateStr = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-        const today = new Date();
-        const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-        return dateStr < todayStr;
-    };
-
-    const isSlotInPast = (dateStr, slotTime) => {
-        const today = new Date();
-        const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-
-        // If date is in the past, slot is in the past
-        if (dateStr < todayStr) return true;
-
-        // If date is today, check the time
-        if (dateStr === todayStr) {
-            const currentHour = today.getHours();
-            const currentMinute = today.getMinutes();
-            const slotHour = parseInt(slotTime.split(':')[0]);
-
-            // If slot hour has already passed, it's in the past
-            if (slotHour < currentHour) return true;
-
-            // If it's the current hour but we're past 30 minutes, consider it past
-            if (slotHour === currentHour && currentMinute > 30) return true;
-        }
-
-        return false;
-    };
-
-    const getDateSlots = (day) => {
-        if (!day) return [];
-
-        const dateStr = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-        const dateBookings = bookings.filter(b => b.date === dateStr);
-
-        console.log(`Getting slots for ${dateStr}, found ${dateBookings.length} bookings`);
-
-        return timeSlots.map(time => {
-            // Find slots for both courts at this time
-            const court1Slot = dateBookings.find(b => b.startTime === time && b.courtId === 'Court 1');
-            const court2Slot = dateBookings.find(b => b.startTime === time && b.courtId === 'Court 2');
-
-            const isPast = isSlotInPast(dateStr, time);
-
-            // Determine status based on isAvailable field OR booking object presence
-            // isAvailable === false means booked, having a booking object also means booked
-            const court1Status = isPast ? 'past' :
-                court1Slot?.isClosed ? 'closed' :
-                    (court1Slot?.isAvailable === false || court1Slot?.booking) ? 'booked' : 'available';
-
-            const court2Status = isPast ? 'past' :
-                court2Slot?.isClosed ? 'closed' :
-                    (court2Slot?.isAvailable === false || court2Slot?.booking) ? 'booked' : 'available';
-
-            return {
-                time,
-                isPast,
-                court1: {
-                    status: court1Status,
-                    customerName: court1Slot?.booking?.customerName || null,
-                    isClosed: court1Slot?.isClosed || false
-                },
-                court2: {
-                    status: court2Status,
-                    customerName: court2Slot?.booking?.customerName || null,
-                    isClosed: court2Slot?.isClosed || false
-                }
-            };
-        });
-    };
-
-    const handleDateHover = (day) => {
-        if (!day) return;
-        setHoveredDate(day);
-        setHoveredSlots(getDateSlots(day));
-    };
-
-    const getDateStatus = (day) => {
-        if (!day) return null;
-
-        // Check if date is in the past
-        if (isDatePast(day)) return 'past';
-
-        const slots = getDateSlots(day);
-
-        let totalSlots = 0;
-        let bookedSlots = 0;
-        let pastSlots = 0;
-
-        slots.forEach(slot => {
-            // Count both courts
-            if (!slot.court1.isClosed) {
-                totalSlots++;
-                if (slot.court1.status === 'booked') bookedSlots++;
-                if (slot.court1.status === 'past') pastSlots++;
-            }
-            if (!slot.court2.isClosed) {
-                totalSlots++;
-                if (slot.court2.status === 'booked') bookedSlots++;
-                if (slot.court2.status === 'past') pastSlots++;
-            }
-        });
-
-        // Exclude past slots from calculation
-        const availableSlots = totalSlots - pastSlots;
-        const bookedAvailableSlots = bookedSlots;
-
-        if (availableSlots === 0) return 'past';
-        if (bookedAvailableSlots === 0) return 'available';
-        if (bookedAvailableSlots === availableSlots) return 'full';
-        return 'partial';
-    };
-
-    const changeMonth = (direction) => {
-        setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + direction, 1));
-    };
-
     return (
         <div className="min-h-screen bg-white flex flex-col">
             {/* Header/Navigation */}
@@ -226,215 +17,20 @@ export default function Home() {
                             </div>
                             <span className="text-2xl font-bold text-gray-900">Court Booking</span>
                         </div>
-                        <button
-                            onClick={() => setShowCalendar(!showCalendar)}
-                            className="px-6 py-2.5 bg-[#ffd60a] text-gray-900 font-semibold rounded-lg hover:bg-yellow-400 transition-all shadow-md hover:shadow-lg flex items-center space-x-2"
-                        >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                            </svg>
-                            <span>View Bookings</span>
-                        </button>
+                        <div className="flex items-center space-x-4">
+                            <Link
+                                to="/availability"
+                                className="px-6 py-2.5 bg-[#ffd60a] text-gray-900 font-semibold rounded-lg hover:bg-yellow-400 transition-all shadow-md hover:shadow-lg flex items-center space-x-2"
+                            >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                </svg>
+                                <span>View Availability</span>
+                            </Link>
+                        </div>
                     </div>
                 </div>
             </header>
-
-            {/* Calendar Modal */}
-            {showCalendar && (
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                    <div className="bg-white/95 backdrop-blur-xl rounded-3xl shadow-2xl max-w-6xl w-full max-h-[90vh] overflow-y-auto border border-white/20">
-                        <div className="sticky top-0 bg-gradient-to-r from-[#ffd60a]/90 to-yellow-400/90 backdrop-blur-xl border-b border-yellow-500/20 px-6 py-5 flex justify-between items-center rounded-t-3xl">
-                            <div className="flex items-center space-x-4">
-                                <div className="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center">
-                                    <svg className="w-6 h-6 text-gray-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                    </svg>
-                                </div>
-                                <h2 className="text-2xl font-bold text-gray-900">Court Availability</h2>
-                                <button
-                                    onClick={fetchBookings}
-                                    disabled={loading}
-                                    className="p-2 hover:bg-white/30 rounded-lg transition-all disabled:opacity-50 backdrop-blur-sm"
-                                    title="Refresh bookings"
-                                >
-                                    <svg className={`w-5 h-5 text-gray-900 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                    </svg>
-                                </button>
-                            </div>
-                            <button
-                                onClick={() => setShowCalendar(false)}
-                                className="text-gray-900 hover:bg-white/30 p-2 rounded-lg transition-all backdrop-blur-sm"
-                            >
-                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </button>
-                        </div>
-
-                        {loading ? (
-                            <div className="flex items-center justify-center py-20">
-                                <div className="text-center">
-                                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#ffd60a] mx-auto mb-4"></div>
-                                    <p className="text-gray-600">Loading bookings...</p>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="p-6 bg-gradient-to-br from-white/50 to-gray-50/50 backdrop-blur-sm">
-                                {/* Month Navigation */}
-                                <div className="flex justify-between items-center mb-6">
-                                    <button
-                                        onClick={() => changeMonth(-1)}
-                                        className="p-3 hover:bg-[#ffd60a]/20 rounded-xl transition-all backdrop-blur-sm border border-gray-200/50 hover:border-[#ffd60a]/50"
-                                    >
-                                        <svg className="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                                        </svg>
-                                    </button>
-                                    <h3 className="text-xl font-bold text-gray-900 px-4 py-2 bg-white/60 backdrop-blur-sm rounded-xl border border-gray-200/50">
-                                        {currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-                                    </h3>
-                                    <button
-                                        onClick={() => changeMonth(1)}
-                                        className="p-3 hover:bg-[#ffd60a]/20 rounded-xl transition-all backdrop-blur-sm border border-gray-200/50 hover:border-[#ffd60a]/50"
-                                    >
-                                        <svg className="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                        </svg>
-                                    </button>
-                                </div>
-
-                                {/* Calendar Grid */}
-                                <div className="grid grid-cols-7 gap-2 mb-4">
-                                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-                                        <div key={day} className="text-center font-semibold text-gray-700 py-2 bg-white/40 backdrop-blur-sm rounded-lg">
-                                            {day}
-                                        </div>
-                                    ))}
-                                </div>
-
-                                <div className="grid grid-cols-7 gap-2">
-                                    {getDaysInMonth().map((day, index) => {
-                                        const status = getDateStatus(day);
-                                        const isPast = isDatePast(day);
-                                        return (
-                                            <div
-                                                key={index}
-                                                className="relative group"
-                                                onMouseEnter={() => !isPast && handleDateHover(day)}
-                                                onMouseLeave={() => setHoveredDate(null)}
-                                            >
-                                                {day ? (
-                                                    <div
-                                                        className={`
-                                                        aspect-square p-2 rounded-xl border-2 transition-all backdrop-blur-sm
-                                                        ${isPast || status === 'past' ? 'border-gray-300 bg-gray-200/60 text-gray-500 cursor-not-allowed opacity-60' : 'cursor-pointer shadow-sm hover:shadow-md'}
-                                                        ${!isPast && status === 'available' ? 'border-green-300 bg-green-50/80 hover:bg-green-100/90 hover:scale-105' : ''}
-                                                        ${!isPast && status === 'partial' ? 'border-yellow-300 bg-yellow-50/80 hover:bg-yellow-100/90 hover:scale-105' : ''}
-                                                        ${!isPast && status === 'full' ? 'border-red-300 bg-red-50/80 hover:bg-red-100/90 hover:scale-105' : ''}
-                                                    `}
-                                                    >
-                                                        <div className="text-center font-semibold">{day}</div>
-                                                        <div className="text-xs text-center mt-1">
-                                                            {(isPast || status === 'past') && <span className="text-gray-500">Past</span>}
-                                                            {!isPast && status === 'available' && <span className="text-green-600">Available</span>}
-                                                            {!isPast && status === 'partial' && <span className="text-yellow-600">Partial</span>}
-                                                            {!isPast && status === 'full' && <span className="text-red-600">Full</span>}
-                                                        </div>
-                                                    </div>
-                                                ) : (
-                                                    <div className="aspect-square p-2"></div>
-                                                )}
-
-                                                {/* Tooltip on Hover */}
-                                                {day && hoveredDate === day && (
-                                                    <div className="absolute left-full ml-2 top-0 z-10 bg-white/95 backdrop-blur-xl border-2 border-gray-200/50 rounded-2xl shadow-2xl p-4 w-80 max-h-96 overflow-y-auto">
-                                                        <div className="font-bold text-gray-900 mb-3 sticky top-0 bg-gradient-to-r from-[#ffd60a]/20 to-yellow-400/20 backdrop-blur-sm pb-2 px-2 rounded-lg -mx-2">
-                                                            {currentMonth.toLocaleDateString('en-US', { month: 'short' })} {day}, {currentMonth.getFullYear()}
-                                                        </div>
-                                                        <div className="space-y-1">
-                                                            {hoveredSlots.map((slot, idx) => (
-                                                                <div key={idx} className="border-b border-white/20 pb-2 mb-2 last:border-0 backdrop-blur-sm">
-                                                                    <div className="font-semibold text-sm text-gray-700 mb-1">{slot.time} - {parseInt(slot.time.split(':')[0]) + 1}:00</div>
-                                                                    <div className="grid grid-cols-2 gap-2">
-                                                                        {/* Court 1 */}
-                                                                        <div className={`p-2 rounded-xl text-xs backdrop-blur-sm shadow-lg transition-all hover:scale-105 ${slot.court1.isClosed
-                                                                            ? 'bg-gray-400/20 border-2 border-gray-400/50 shadow-gray-500/20'
-                                                                            : slot.court1.status === 'past'
-                                                                                ? 'bg-gray-400/20 border-2 border-gray-400/50 shadow-gray-500/10'
-                                                                                : slot.court1.status === 'booked'
-                                                                                    ? 'bg-red-500/20 border-2 border-red-400/50 shadow-red-500/20'
-                                                                                    : 'bg-green-500/20 border-2 border-green-400/50 shadow-green-500/20'
-                                                                            }`}>
-                                                                            <div className="font-semibold mb-1">Court 1</div>
-                                                                            <span className={`inline-block px-2 py-0.5 rounded-lg text-xs font-semibold ${slot.court1.isClosed
-                                                                                ? 'bg-gray-600/30 text-gray-700'
-                                                                                : slot.court1.status === 'past'
-                                                                                    ? 'bg-gray-600/30 text-gray-600'
-                                                                                    : slot.court1.status === 'booked'
-                                                                                        ? 'bg-red-600/30 text-red-700'
-                                                                                        : 'bg-green-600/30 text-green-700'
-                                                                                }`}>
-                                                                                {slot.court1.isClosed ? 'Closed' : slot.court1.status === 'past' ? 'Past' : slot.court1.status === 'booked' ? 'Booked' : 'Available'}
-                                                                            </span>
-                                                                        </div>
-
-                                                                        {/* Court 2 */}
-                                                                        <div className={`p-2 rounded-xl text-xs backdrop-blur-sm shadow-lg transition-all hover:scale-105 ${slot.court2.isClosed
-                                                                            ? 'bg-gray-400/20 border-2 border-gray-400/50 shadow-gray-500/20'
-                                                                            : slot.court2.status === 'past'
-                                                                                ? 'bg-gray-400/20 border-2 border-gray-400/50 shadow-gray-500/10'
-                                                                                : slot.court2.status === 'booked'
-                                                                                    ? 'bg-red-500/20 border-2 border-red-400/50 shadow-red-500/20'
-                                                                                    : 'bg-green-500/20 border-2 border-green-400/50 shadow-green-500/20'
-                                                                            }`}>
-                                                                            <div className="font-semibold mb-1">Court 2</div>
-                                                                            <span className={`inline-block px-2 py-0.5 rounded-lg text-xs font-semibold ${slot.court2.isClosed
-                                                                                ? 'bg-gray-600/30 text-gray-700'
-                                                                                : slot.court2.status === 'past'
-                                                                                    ? 'bg-gray-600/30 text-gray-600'
-                                                                                    : slot.court2.status === 'booked'
-                                                                                        ? 'bg-red-600/30 text-red-700'
-                                                                                        : 'bg-green-600/30 text-green-700'
-                                                                                }`}>
-                                                                                {slot.court2.isClosed ? 'Closed' : slot.court2.status === 'past' ? 'Past' : slot.court2.status === 'booked' ? 'Booked' : 'Available'}
-                                                                            </span>
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-
-                                {/* Legend */}
-                                <div className="mt-6 flex justify-center space-x-6">
-                                    <div className="flex items-center space-x-2">
-                                        <div className="w-4 h-4 bg-green-200 border-2 border-green-300 rounded"></div>
-                                        <span className="text-sm text-gray-600">All Available</span>
-                                    </div>
-                                    <div className="flex items-center space-x-2">
-                                        <div className="w-4 h-4 bg-yellow-200 border-2 border-yellow-300 rounded"></div>
-                                        <span className="text-sm text-gray-600">Partially Booked</span>
-                                    </div>
-                                    <div className="flex items-center space-x-2">
-                                        <div className="w-4 h-4 bg-red-200 border-2 border-red-300 rounded"></div>
-                                        <span className="text-sm text-gray-600">Fully Booked</span>
-                                    </div>
-                                    <div className="flex items-center space-x-2">
-                                        <div className="w-4 h-4 bg-gray-200 border-2 border-gray-300 rounded"></div>
-                                        <span className="text-sm text-gray-600">Past Date</span>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
 
             {/* Hero Section */}
             <section className="flex-1 flex items-center">
@@ -453,26 +49,26 @@ export default function Home() {
                             </h1>
 
                             <p className="text-lg md:text-xl text-gray-600 mb-8 leading-relaxed">
-                                Streamline your court management, track bookings, and handle reservations efficiently.
-                                The modern way to manage your badminton court bookings.
+                                Check real-time court availability and book your preferred time slot.
+                                The modern way to reserve your badminton court.
                             </p>
 
                             <div className="flex flex-col sm:flex-row gap-4">
-                                <button
-                                    onClick={() => setShowCalendar(true)}
+                                <Link
+                                    to="/availability"
                                     className="px-8 py-4 bg-[#ffd60a] text-gray-900 font-bold rounded-lg hover:bg-yellow-400 transition-all shadow-lg hover:shadow-xl flex items-center justify-center space-x-2"
                                 >
-                                    <span>View Bookings</span>
+                                    <span>Check Availability</span>
                                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                                     </svg>
-                                </button>
-                                <button
-                                    onClick={() => document.getElementById('contact')?.scrollIntoView({ behavior: 'smooth' })}
-                                    className="px-8 py-4 bg-white text-gray-900 font-semibold rounded-lg border-2 border-gray-200 hover:border-[#ffd60a] transition-all"
+                                </Link>
+                                <a
+                                    href="#contact"
+                                    className="px-8 py-4 bg-white text-gray-900 font-semibold rounded-lg border-2 border-gray-200 hover:border-[#ffd60a] transition-all text-center"
                                 >
                                     Contact Us
-                                </button>
+                                </a>
                             </div>
                         </div>
 
@@ -508,16 +104,16 @@ export default function Home() {
                                     {/* Stats Grid */}
                                     <div className="grid grid-cols-3 gap-4">
                                         <div className="bg-white rounded-lg shadow-md p-4 text-center">
-                                            <div className="text-2xl font-bold text-[#ffd60a]">24/7</div>
-                                            <div className="text-xs text-gray-600">Access</div>
+                                            <div className="text-2xl font-bold text-[#ffd60a]">2</div>
+                                            <div className="text-xs text-gray-600">Courts</div>
                                         </div>
                                         <div className="bg-white rounded-lg shadow-md p-4 text-center">
-                                            <div className="text-2xl font-bold text-[#ffd60a]">100%</div>
-                                            <div className="text-xs text-gray-600">Secure</div>
+                                            <div className="text-2xl font-bold text-[#ffd60a]">17</div>
+                                            <div className="text-xs text-gray-600">Slots/Day</div>
                                         </div>
                                         <div className="bg-white rounded-lg shadow-md p-4 text-center">
-                                            <div className="text-2xl font-bold text-[#ffd60a]">Fast</div>
-                                            <div className="text-xs text-gray-600">Booking</div>
+                                            <div className="text-2xl font-bold text-[#ffd60a]">6-11</div>
+                                            <div className="text-xs text-gray-600">AM to PM</div>
                                         </div>
                                     </div>
                                 </div>
@@ -532,10 +128,10 @@ export default function Home() {
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="text-center mb-16">
                         <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
-                            Everything You Need to Manage Your Court
+                            Why Choose Our Court?
                         </h2>
                         <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-                            Powerful features designed to make court booking simple and efficient
+                            Premium badminton facilities with easy booking
                         </p>
                     </div>
 
@@ -547,9 +143,9 @@ export default function Home() {
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                                 </svg>
                             </div>
-                            <h3 className="text-xl font-bold text-gray-900 mb-3">Easy Booking</h3>
+                            <h3 className="text-xl font-bold text-gray-900 mb-3">Real-Time Availability</h3>
                             <p className="text-gray-600">
-                                Quick and intuitive booking system. Reserve your court in just a few clicks.
+                                Check court availability instantly. See what slots are open before you call.
                             </p>
                         </div>
 
@@ -557,12 +153,12 @@ export default function Home() {
                         <div className="bg-white rounded-xl shadow-lg p-8 hover:shadow-xl transition-shadow border-t-4 border-[#ffd60a]">
                             <div className="w-14 h-14 bg-yellow-50 rounded-lg flex items-center justify-center mb-6">
                                 <svg className="w-8 h-8 text-[#ffd60a]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                                 </svg>
                             </div>
-                            <h3 className="text-xl font-bold text-gray-900 mb-3">Reports & Analytics</h3>
+                            <h3 className="text-xl font-bold text-gray-900 mb-3">Flexible Hours</h3>
                             <p className="text-gray-600">
-                                Track bookings, earnings, and customer data with comprehensive reports.
+                                Open from 6 AM to 11 PM. Book hourly slots that fit your schedule.
                             </p>
                         </div>
 
@@ -570,51 +166,13 @@ export default function Home() {
                         <div className="bg-white rounded-xl shadow-lg p-8 hover:shadow-xl transition-shadow border-t-4 border-[#ffd60a]">
                             <div className="w-14 h-14 bg-yellow-50 rounded-lg flex items-center justify-center mb-6">
                                 <svg className="w-8 h-8 text-[#ffd60a]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                                 </svg>
                             </div>
-                            <h3 className="text-xl font-bold text-gray-900 mb-3">Secure & Reliable</h3>
+                            <h3 className="text-xl font-bold text-gray-900 mb-3">Premium Facilities</h3>
                             <p className="text-gray-600">
-                                Your data is protected with industry-standard security measures.
-                            </p>
-                        </div>
-
-                        {/* Feature 4 */}
-                        <div className="bg-white rounded-xl shadow-lg p-8 hover:shadow-xl transition-shadow border-t-4 border-[#ffd60a]">
-                            <div className="w-14 h-14 bg-yellow-50 rounded-lg flex items-center justify-center mb-6">
-                                <svg className="w-8 h-8 text-[#ffd60a]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                            </div>
-                            <h3 className="text-xl font-bold text-gray-900 mb-3">Real-time Updates</h3>
-                            <p className="text-gray-600">
-                                Get instant updates on bookings and court availability in real-time.
-                            </p>
-                        </div>
-
-                        {/* Feature 5 */}
-                        <div className="bg-white rounded-xl shadow-lg p-8 hover:shadow-xl transition-shadow border-t-4 border-[#ffd60a]">
-                            <div className="w-14 h-14 bg-yellow-50 rounded-lg flex items-center justify-center mb-6">
-                                <svg className="w-8 h-8 text-[#ffd60a]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-                                </svg>
-                            </div>
-                            <h3 className="text-xl font-bold text-gray-900 mb-3">Payment Tracking</h3>
-                            <p className="text-gray-600">
-                                Keep track of all payments and earnings with detailed financial records.
-                            </p>
-                        </div>
-
-                        {/* Feature 6 */}
-                        <div className="bg-white rounded-xl shadow-lg p-8 hover:shadow-xl transition-shadow border-t-4 border-[#ffd60a]">
-                            <div className="w-14 h-14 bg-yellow-50 rounded-lg flex items-center justify-center mb-6">
-                                <svg className="w-8 h-8 text-[#ffd60a]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                                </svg>
-                            </div>
-                            <h3 className="text-xl font-bold text-gray-900 mb-3">Mobile Friendly</h3>
-                            <p className="text-gray-600">
-                                Fully responsive design works perfectly on all devices and screen sizes.
+                                Professional-grade courts with quality flooring and equipment.
                             </p>
                         </div>
                     </div>
@@ -622,256 +180,256 @@ export default function Home() {
             </section>
 
             {/* Gallery Section */}
-            <section className="py-16 md:py-24 bg-white">
+            <section id="gallery" className="py-16 md:py-24 bg-white">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                    <div className="text-center mb-16">
+                    <div className="text-center mb-12">
                         <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
                             Our Facilities
                         </h2>
                         <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-                            Take a look at our world-class badminton courts and facilities
+                            Take a look at our professional badminton courts and amenities
                         </p>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {/* Gallery Item 1 */}
+                        {/* Gallery Image 1 */}
                         <div className="group relative overflow-hidden rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300">
-                            <div className="aspect-[4/3] bg-gradient-to-br from-blue-400 to-blue-600 relative">
-                                <div className="absolute inset-0 flex items-center justify-center">
-                                    <div className="text-center text-white">
-                                        <svg className="w-16 h-16 mx-auto mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                        </svg>
-                                        <p className="text-lg font-semibold">Court 1</p>
-                                    </div>
-                                </div>
-                            </div>
+                            <img
+                                src="/images/gallery1.png"
+                                alt="Professional Badminton Court"
+                                className="w-full h-64 object-cover transform group-hover:scale-110 transition-transform duration-500"
+                            />
                             <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                                <div className="absolute bottom-0 left-0 right-0 p-6 text-white">
-                                    <h3 className="text-xl font-bold mb-2">Main Court</h3>
-                                    <p className="text-sm text-gray-200">Professional grade badminton court with premium flooring</p>
+                                <div className="absolute bottom-4 left-4 text-white">
+                                    <h3 className="text-lg font-bold">Court 1</h3>
+                                    <p className="text-sm text-gray-200">Professional wooden flooring</p>
                                 </div>
                             </div>
                         </div>
 
-                        {/* Gallery Item 2 */}
+                        {/* Gallery Image 2 */}
                         <div className="group relative overflow-hidden rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300">
-                            <div className="aspect-[4/3] bg-gradient-to-br from-green-400 to-green-600 relative">
-                                <div className="absolute inset-0 flex items-center justify-center">
-                                    <div className="text-center text-white">
-                                        <svg className="w-16 h-16 mx-auto mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                        </svg>
-                                        <p className="text-lg font-semibold">Court 2</p>
-                                    </div>
-                                </div>
-                            </div>
+                            <img
+                                src="/images/gallery2.png"
+                                alt="Reception & Lobby"
+                                className="w-full h-64 object-cover transform group-hover:scale-110 transition-transform duration-500"
+                            />
                             <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                                <div className="absolute bottom-0 left-0 right-0 p-6 text-white">
-                                    <h3 className="text-xl font-bold mb-2">Secondary Court</h3>
-                                    <p className="text-sm text-gray-200">Spacious court with excellent lighting and ventilation</p>
+                                <div className="absolute bottom-4 left-4 text-white">
+                                    <h3 className="text-lg font-bold">Reception Area</h3>
+                                    <p className="text-sm text-gray-200">Modern waiting lounge</p>
                                 </div>
                             </div>
                         </div>
 
-                        {/* Gallery Item 3 */}
-                        <div className="group relative overflow-hidden rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300">
-                            <div className="aspect-[4/3] bg-gradient-to-br from-purple-400 to-purple-600 relative">
-                                <div className="absolute inset-0 flex items-center justify-center">
-                                    <div className="text-center text-white">
-                                        <svg className="w-16 h-16 mx-auto mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                                        </svg>
-                                        <p className="text-lg font-semibold">Facilities</p>
-                                    </div>
-                                </div>
-                            </div>
+                        {/* Gallery Image 3 */}
+                        <div className="group relative overflow-hidden rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300 md:col-span-2 lg:col-span-1">
+                            <img
+                                src="/images/gallery3.png"
+                                alt="Court in Action"
+                                className="w-full h-64 object-cover transform group-hover:scale-110 transition-transform duration-500"
+                            />
                             <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                                <div className="absolute bottom-0 left-0 right-0 p-6 text-white">
-                                    <h3 className="text-xl font-bold mb-2">Modern Facilities</h3>
-                                    <p className="text-sm text-gray-200">Clean changing rooms and comfortable waiting area</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Gallery Item 4 */}
-                        <div className="group relative overflow-hidden rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300">
-                            <div className="aspect-[4/3] bg-gradient-to-br from-orange-400 to-orange-600 relative">
-                                <div className="absolute inset-0 flex items-center justify-center">
-                                    <div className="text-center text-white">
-                                        <svg className="w-16 h-16 mx-auto mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                                        </svg>
-                                        <p className="text-lg font-semibold">Lighting</p>
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                                <div className="absolute bottom-0 left-0 right-0 p-6 text-white">
-                                    <h3 className="text-xl font-bold mb-2">Professional Lighting</h3>
-                                    <p className="text-sm text-gray-200">LED lighting system for optimal visibility</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Gallery Item 5 */}
-                        <div className="group relative overflow-hidden rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300">
-                            <div className="aspect-[4/3] bg-gradient-to-br from-pink-400 to-pink-600 relative">
-                                <div className="absolute inset-0 flex items-center justify-center">
-                                    <div className="text-center text-white">
-                                        <svg className="w-16 h-16 mx-auto mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                                        </svg>
-                                        <p className="text-lg font-semibold">Community</p>
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                                <div className="absolute bottom-0 left-0 right-0 p-6 text-white">
-                                    <h3 className="text-xl font-bold mb-2">Players Community</h3>
-                                    <p className="text-sm text-gray-200">Join our vibrant badminton community</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Gallery Item 6 */}
-                        <div className="group relative overflow-hidden rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300">
-                            <div className="aspect-[4/3] bg-gradient-to-br from-yellow-400 to-yellow-600 relative">
-                                <div className="absolute inset-0 flex items-center justify-center">
-                                    <div className="text-center text-white">
-                                        <svg className="w-16 h-16 mx-auto mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-                                        </svg>
-                                        <p className="text-lg font-semibold">Equipment</p>
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                                <div className="absolute bottom-0 left-0 right-0 p-6 text-white">
-                                    <h3 className="text-xl font-bold mb-2">Quality Equipment</h3>
-                                    <p className="text-sm text-gray-200">Premium rackets and shuttlecocks available</p>
+                                <div className="absolute bottom-4 left-4 text-white">
+                                    <h3 className="text-lg font-bold">Game Time</h3>
+                                    <p className="text-sm text-gray-200">Professional-grade facilities</p>
                                 </div>
                             </div>
                         </div>
                     </div>
+
+                    {/* Gallery CTA */}
+                    <div className="text-center mt-10">
+                        <Link
+                            to="/availability"
+                            className="inline-flex items-center space-x-2 px-8 py-3 bg-[#ffd60a] text-gray-900 font-bold rounded-lg hover:bg-yellow-400 transition-all shadow-lg hover:shadow-xl"
+                        >
+                            <span>Book Your Court Now</span>
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                            </svg>
+                        </Link>
+                    </div>
                 </div>
             </section>
 
-            {/* CTA Section */}
-            <section className="py-16 md:py-24 bg-gradient-to-br from-[#ffd60a] to-yellow-400">
-                <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-                    <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
-                        Ready to Streamline Your Court Management?
-                    </h2>
-                    <p className="text-lg text-gray-800 mb-8">
-                        Join hundreds of court managers who trust our platform for their booking needs.
-                    </p>
-                    <button
-                        onClick={() => document.getElementById('contact')?.scrollIntoView({ behavior: 'smooth' })}
-                        className="px-8 py-4 bg-gray-900 text-white font-bold rounded-lg hover:bg-gray-800 transition-all shadow-xl hover:shadow-2xl inline-flex items-center justify-center space-x-2"
-                    >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                        </svg>
-                        <span>Contact Us</span>
-                    </button>
-                </div>
-            </section>
-
-            {/* Contact Us Section */}
-            <section id="contact" className="py-16 md:py-24 bg-white">
+            {/* Map Section */}
+            <section id="location" className="py-16 md:py-24 bg-gray-50">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                    <div className="text-center mb-16">
+                    <div className="text-center mb-12">
                         <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
-                            Get in Touch
+                            Find Us
                         </h2>
                         <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-                            Have questions? We'd love to hear from you. Visit us or reach out through any of the channels below.
+                            Visit our conveniently located badminton facility
                         </p>
                     </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-                        {/* Contact Information */}
-                        <div className="space-y-8">
-                            <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl p-8 border border-gray-200">
-                                <h3 className="text-2xl font-bold text-gray-900 mb-6">Contact Information</h3>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        {/* Map Embed */}
+                        <div className="rounded-2xl overflow-hidden shadow-xl h-80 lg:h-96">
+                            <iframe
+                                src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d253482.02028987045!2d79.7861641!3d6.9218386!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3ae253d10f7a7003%3A0x320b2e4d32d3838d!2sColombo%2C%20Sri%20Lanka!5e0!3m2!1sen!2s!4v1699999999999!5m2!1sen!2s"
+                                width="100%"
+                                height="100%"
+                                style={{ border: 0 }}
+                                allowFullScreen=""
+                                loading="lazy"
+                                referrerPolicy="no-referrer-when-downgrade"
+                                title="Court Location"
+                            ></iframe>
+                        </div>
 
-                                <div className="space-y-6">
-                                    {/* Phone */}
-                                    <div className="flex items-start space-x-4">
-                                        <div className="w-12 h-12 bg-[#ffd60a] rounded-lg flex items-center justify-center flex-shrink-0">
-                                            <svg className="w-6 h-6 text-gray-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                                            </svg>
-                                        </div>
-                                        <div>
-                                            <h4 className="font-semibold text-gray-900 mb-1">Phone</h4>
-                                            <p className="text-gray-600">+94 77 123 4567</p>
-                                            <p className="text-gray-600">+94 11 234 5678</p>
-                                        </div>
+                        {/* Location Details */}
+                        <div className="bg-white rounded-2xl shadow-xl p-8 flex flex-col justify-center">
+                            <div className="space-y-6">
+                                <div className="flex items-start space-x-4">
+                                    <div className="w-12 h-12 bg-[#ffd60a] rounded-lg flex items-center justify-center flex-shrink-0">
+                                        <svg className="w-6 h-6 text-gray-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                                        </svg>
                                     </div>
-
-                                    {/* Email */}
-                                    <div className="flex items-start space-x-4">
-                                        <div className="w-12 h-12 bg-[#ffd60a] rounded-lg flex items-center justify-center flex-shrink-0">
-                                            <svg className="w-6 h-6 text-gray-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                                            </svg>
-                                        </div>
-                                        <div>
-                                            <h4 className="font-semibold text-gray-900 mb-1">Email</h4>
-                                            <p className="text-gray-600">info@courtbooking.com</p>
-                                            <p className="text-gray-600">support@courtbooking.com</p>
-                                        </div>
-                                    </div>
-
-                                    {/* Location */}
-                                    <div className="flex items-start space-x-4">
-                                        <div className="w-12 h-12 bg-[#ffd60a] rounded-lg flex items-center justify-center flex-shrink-0">
-                                            <svg className="w-6 h-6 text-gray-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                                            </svg>
-                                        </div>
-                                        <div>
-                                            <h4 className="font-semibold text-gray-900 mb-1">Location</h4>
-                                            <p className="text-gray-600">123 Sports Complex Avenue</p>
-                                            <p className="text-gray-600">Colombo 07, Sri Lanka</p>
-                                        </div>
-                                    </div>
-
-                                    {/* Operating Hours */}
-                                    <div className="flex items-start space-x-4">
-                                        <div className="w-12 h-12 bg-[#ffd60a] rounded-lg flex items-center justify-center flex-shrink-0">
-                                            <svg className="w-6 h-6 text-gray-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                            </svg>
-                                        </div>
-                                        <div>
-                                            <h4 className="font-semibold text-gray-900 mb-1">Operating Hours</h4>
-                                            <p className="text-gray-600">Monday - Sunday</p>
-                                            <p className="text-gray-600">6:00 AM - 11:00 PM</p>
-                                        </div>
+                                    <div>
+                                        <h3 className="text-lg font-bold text-gray-900">Address</h3>
+                                        <p className="text-gray-600 mt-1">
+                                            123 Sports Avenue,<br />
+                                            Colombo 07,<br />
+                                            Sri Lanka
+                                        </p>
                                     </div>
                                 </div>
-                            </div>
-                        </div>
 
-                        {/* Google Map */}
-                        <div className="h-full min-h-[500px]">
-                            <div className="bg-gray-100 rounded-2xl overflow-hidden shadow-lg h-full border border-gray-200">
-                                <iframe
-                                    src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3960.798467128415!2d79.86119631477274!3d6.914611995005645!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3ae2596d3b6b8c33%3A0x3c6ec2d1c0a3e4b0!2sColombo%2007%2C%20Sri%20Lanka!5e0!3m2!1sen!2slk!4v1234567890123!5m2!1sen!2slk"
-                                    width="100%"
-                                    height="100%"
-                                    style={{ border: 0, minHeight: '500px' }}
-                                    allowFullScreen
-                                    loading="lazy"
-                                    referrerPolicy="no-referrer-when-downgrade"
-                                    title="Court Location Map"
-                                ></iframe>
+                                <div className="flex items-start space-x-4">
+                                    <div className="w-12 h-12 bg-blue-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                                        <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                    </div>
+                                    <div>
+                                        <h3 className="text-lg font-bold text-gray-900">Operating Hours</h3>
+                                        <p className="text-gray-600 mt-1">
+                                            Monday - Sunday<br />
+                                            6:00 AM - 11:00 PM
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-start space-x-4">
+                                    <div className="w-12 h-12 bg-green-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                                        <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                        </svg>
+                                    </div>
+                                    <div>
+                                        <h3 className="text-lg font-bold text-gray-900">Parking Available</h3>
+                                        <p className="text-gray-600 mt-1">
+                                            Free parking for all customers
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <a
+                                    href="https://www.google.com/maps/dir//Colombo,+Sri+Lanka"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center space-x-2 px-6 py-3 bg-gray-900 text-white font-semibold rounded-lg hover:bg-gray-800 transition-all w-full justify-center mt-4"
+                                >
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                                    </svg>
+                                    <span>Get Directions</span>
+                                </a>
                             </div>
                         </div>
+                    </div>
+                </div>
+            </section>
+
+            {/* Contact Section */}
+            <section id="contact" className="py-16 md:py-24 bg-white">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    <div className="text-center mb-12">
+                        <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
+                            Get In Touch
+                        </h2>
+                        <p className="text-lg text-gray-600">
+                            Contact us to book your court or ask any questions
+                        </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                        {/* Phone */}
+                        <a
+                            href="tel:+94771234567"
+                            className="bg-gradient-to-br from-[#ffd60a]/10 to-yellow-50 rounded-2xl shadow-lg p-8 border border-[#ffd60a]/20 hover:shadow-xl transition-all hover:scale-105 group"
+                        >
+                            <div className="text-center">
+                                <div className="w-16 h-16 bg-[#ffd60a] rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform">
+                                    <svg className="w-8 h-8 text-gray-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                                    </svg>
+                                </div>
+                                <h3 className="text-xl font-bold text-gray-900 mb-2">Call Us</h3>
+                                <p className="text-2xl font-bold text-[#ffd60a]">+94 77 123 4567</p>
+                                <p className="text-sm text-gray-500 mt-2">Available 6 AM - 11 PM</p>
+                            </div>
+                        </a>
+
+                        {/* WhatsApp */}
+                        <a
+                            href="https://wa.me/94771234567"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="bg-gradient-to-br from-green-50 to-green-100 rounded-2xl shadow-lg p-8 border border-green-200 hover:shadow-xl transition-all hover:scale-105 group"
+                        >
+                            <div className="text-center">
+                                <div className="w-16 h-16 bg-green-500 rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform">
+                                    <svg className="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+                                    </svg>
+                                </div>
+                                <h3 className="text-xl font-bold text-gray-900 mb-2">WhatsApp</h3>
+                                <p className="text-2xl font-bold text-green-600">+94 77 123 4567</p>
+                                <p className="text-sm text-gray-500 mt-2">Quick response guaranteed</p>
+                            </div>
+                        </a>
+
+                        {/* Email */}
+                        <a
+                            href="mailto:info@courtbooking.lk"
+                            className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-2xl shadow-lg p-8 border border-blue-200 hover:shadow-xl transition-all hover:scale-105 group"
+                        >
+                            <div className="text-center">
+                                <div className="w-16 h-16 bg-blue-500 rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform">
+                                    <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                    </svg>
+                                </div>
+                                <h3 className="text-xl font-bold text-gray-900 mb-2">Email Us</h3>
+                                <p className="text-xl font-bold text-blue-600">info@courtbooking.lk</p>
+                                <p className="text-sm text-gray-500 mt-2">We reply within 24 hours</p>
+                            </div>
+                        </a>
+                    </div>
+
+                    {/* CTA Banner */}
+                    <div className="mt-12 bg-gradient-to-r from-gray-900 to-gray-800 rounded-2xl p-8 md:p-12 text-center">
+                        <h3 className="text-2xl md:text-3xl font-bold text-white mb-4">
+                            Ready to Book Your Court?
+                        </h3>
+                        <p className="text-gray-300 mb-6 max-w-2xl mx-auto">
+                            Check real-time availability and secure your preferred time slot today!
+                        </p>
+                        <Link
+                            to="/availability"
+                            className="inline-flex items-center space-x-2 px-8 py-4 bg-[#ffd60a] text-gray-900 font-bold rounded-lg hover:bg-yellow-400 transition-all shadow-lg hover:shadow-xl"
+                        >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
+                            <span>View Court Availability</span>
+                        </Link>
                     </div>
                 </div>
             </section>
@@ -881,3 +439,4 @@ export default function Home() {
         </div>
     );
 }
+
