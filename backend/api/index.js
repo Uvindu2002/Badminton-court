@@ -202,6 +202,22 @@ const courts = ['Court 1', 'Court 2'];
 // ROUTES
 // ============================================
 
+// Root route
+app.get('/', (req, res) => {
+    res.json({
+        success: true,
+        message: 'Badminton Court Booking API',
+        version: '1.0.0',
+        endpoints: {
+            health: '/api/health',
+            admin: '/api/admin/login',
+            bookings: '/api/bookings',
+            courtStatus: '/api/court-status',
+            pricing: '/api/pricing',
+        },
+    });
+});
+
 // Health Check
 app.get('/api/health', (req, res) => {
     res.json({
